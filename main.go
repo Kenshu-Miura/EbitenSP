@@ -17,11 +17,15 @@ const (
 	screenHeight = 600
 	playerSize   = 40
 	obstacleSize = 30
+	laserWidth   = 4
+	laserHeight  = 20
+	laserSpeed   = 8
 )
 
 type Game struct {
 	player               *Player
 	obstacles            []*Obstacle
+	lasers               []*Laser
 	score                int
 	gameOver             bool
 	scrollX              float64
@@ -44,6 +48,11 @@ type Player struct {
 
 type Obstacle struct {
 	x, y, width, height float64
+	hitCount            int // レーザーが当たった回数
+}
+
+type Laser struct {
+	x, y float64
 }
 
 func NewGame() *Game {
@@ -55,6 +64,7 @@ func NewGame() *Game {
 			onGround: false,
 		},
 		obstacles:            make([]*Obstacle, 0),
+		lasers:               make([]*Laser, 0),
 		score:                0,
 		gameOver:             false,
 		scrollX:              0,
@@ -74,22 +84,30 @@ func (g *Game) Update() error {
 	// タッチ状態の更新
 	var touchIDs []ebiten.TouchID
 	touchIDs = inpututil.AppendJustPressedTouchIDs(touchIDs)
-	if len(touchIDs) > 0 {
-		g.touchPressed = true
+	g.touchPressed = len(touchIDs) > 0
+
+	// デバッグ用：タッチ状態をログ出力
+	if g.touchPressed {
+		fmt.Printf("タップ検出: touchIDs=%d\n", len(touchIDs))
+	}
+
+	// マウスクリックも検出
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		fmt.Printf("マウスクリック検出\n")
 	}
 
 	if g.gameOver {
-		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || g.touchPressed || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		if g.touchPressed || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 			*g = *NewGame()
 			return nil
 		}
 		return nil
 	}
 
-	// プレイヤーのジャンプ処理（マウスクリックまたはタッチ）
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) || g.touchPressed {
+	// プレイヤーのジャンプ処理（タップまたはマウスクリック）
+	if g.touchPressed || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		g.player.velocity = -8 // ふんわりとしたジャンプ
-		g.touchPressed = false
+		fmt.Printf("ジャンプ実行: velocity=%.1f\n", g.player.velocity)
 	}
 
 	// 重力の適用（ふんわりとした落下）
@@ -124,15 +142,53 @@ func (g *Game) Update() error {
 			obstacleY := float64(rand.Intn(screenHeight - 100)) // 0からscreenHeight-100のランダムなY位置
 
 			g.obstacles = append(g.obstacles, &Obstacle{
-				x:      screenWidth + 50,
-				y:      obstacleY,
-				width:  obstacleWidth,
-				height: obstacleHeight,
+				x:        screenWidth + 50,
+				y:        obstacleY,
+				width:    obstacleWidth,
+				height:   obstacleHeight,
+				hitCount: 0, // 障害物生成時はヒットカウントを0に
 			})
 		}
 		g.obstacleTimer = 0
 		// 次の障害物までの間隔をランダムに設定（30-120フレーム、つまり0.5-2秒）
 		g.nextObstacleInterval = rand.Intn(91) + 30
+	}
+
+	// レーザーの発射（タップまたはマウスクリック時）
+	if g.touchPressed || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		g.lasers = append(g.lasers, &Laser{
+			x: g.player.x + playerSize,                  // プレイヤーの右側から発射
+			y: g.player.y + playerSize/2 - laserWidth/2, // プレイヤーの中央から発射（横棒なのでlaserWidthを使用）
+		})
+		fmt.Printf("レーザー発射: 位置(%.1f, %.1f), レーザー数=%d\n", g.player.x+playerSize, g.player.y+playerSize/2-laserWidth/2, len(g.lasers))
+	}
+
+	// レーザーの移動
+	for i := len(g.lasers) - 1; i >= 0; i-- {
+		laser := g.lasers[i]
+		laser.x += laserSpeed // 右に移動
+
+		// 画面外に出たレーザーを削除
+		if laser.x > screenWidth {
+			g.lasers = append(g.lasers[:i], g.lasers[i+1:]...)
+			continue
+		}
+
+		// 障害物との衝突判定
+		for j := len(g.obstacles) - 1; j >= 0; j-- {
+			obstacle := g.obstacles[j]
+			if g.checkLaserCollision(laser, obstacle) {
+				obstacle.hitCount++
+				if obstacle.hitCount >= 2 { // 2回ヒットしたら削除
+					g.obstacles = append(g.obstacles[:j], g.obstacles[j+1:]...)
+					g.score += 3 // 障害物破壊で3点追加
+				} else {
+					g.score++ // 通常のヒットで1点追加
+				}
+				g.lasers = append(g.lasers[:i], g.lasers[i+1:]...)
+				break // 衝突したら次のレーザーに進む
+			}
+		}
 	}
 
 	// 障害物の移動と衝突判定
@@ -168,6 +224,13 @@ func (g *Game) checkCollision(player *Player, obstacle *Obstacle) bool {
 		player.y+playerSize > obstacle.y
 }
 
+func (g *Game) checkLaserCollision(laser *Laser, obstacle *Obstacle) bool {
+	return laser.x < obstacle.x+obstacle.width &&
+		laser.x+laserHeight > obstacle.x &&
+		laser.y < obstacle.y+obstacle.height &&
+		laser.y+laserWidth > obstacle.y
+}
+
 func (g *Game) drawLives(screen *ebiten.Image) {
 	// 右上にライフを表示
 	heartSize := 20.0
@@ -201,7 +264,22 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// 障害物を描画
 	for _, obstacle := range g.obstacles {
-		vector.DrawFilledRect(screen, float32(obstacle.x), float32(obstacle.y), float32(obstacle.width), float32(obstacle.height), color.RGBA{139, 69, 19, 255}, false)
+		// ヒット回数に応じて色を変更
+		var obstacleColor color.RGBA
+		switch obstacle.hitCount {
+		case 0:
+			obstacleColor = color.RGBA{139, 69, 19, 255} // 茶色（初期）
+		case 1:
+			obstacleColor = color.RGBA{255, 165, 0, 255} // オレンジ（1回ヒット）
+		default:
+			obstacleColor = color.RGBA{255, 0, 0, 255} // 赤（2回ヒット、破壊直前）
+		}
+		vector.DrawFilledRect(screen, float32(obstacle.x), float32(obstacle.y), float32(obstacle.width), float32(obstacle.height), obstacleColor, false)
+	}
+
+	// レーザーを描画（横棒として）
+	for _, laser := range g.lasers {
+		vector.DrawFilledRect(screen, float32(laser.x), float32(laser.y), float32(laserHeight), float32(laserWidth), color.RGBA{255, 255, 0, 255}, false)
 	}
 
 	// スコアを表示
@@ -211,6 +289,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// 現在のスクロール速度を表示
 	speedText := "Speed: " + fmt.Sprintf("%.1f", g.scrollSpeed)
 	ebitenutil.DebugPrintAt(screen, speedText, 0, 20)
+
+	// 操作説明を表示
+	ebitenutil.DebugPrintAt(screen, "Tap: Jump + Laser", 0, 40)
 
 	// ライフを表示（右上に赤いハートマーク）
 	g.drawLives(screen)
