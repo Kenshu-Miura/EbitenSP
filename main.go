@@ -20,6 +20,7 @@ const (
 	laserWidth   = 4
 	laserHeight  = 20
 	laserSpeed   = 8
+	minPlayerY   = -50 // プレイヤーの最小Y座標（上昇制限）
 )
 
 type Game struct {
@@ -113,6 +114,18 @@ func (g *Game) Update() error {
 	// 重力の適用（ふんわりとした落下）
 	g.player.velocity += g.gravity
 	g.player.y += g.player.velocity
+
+	// 上昇制限の適用
+	if g.player.y < minPlayerY {
+		g.player.y = minPlayerY
+		g.player.velocity = 0 // 上昇制限に達したら速度をリセット
+
+		// 画面外に到達した場合、ライフを1減らす
+		g.lives--
+		if g.lives <= 0 {
+			g.gameOver = true
+		}
+	}
 
 	// 画面下に落下したらゲームオーバー
 	if g.player.y > screenHeight {
