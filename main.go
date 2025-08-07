@@ -1,12 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"image/color"
+	"io"
 	"log"
+	"math"
 	"math/rand"
+	"os"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/audio"
+	"github.com/hajimehoshi/ebiten/v2/audio/wav"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -22,6 +28,8 @@ const (
 	laserSpeed   = 8
 	minPlayerY   = -50 // プレイヤーの最小Y座標（上昇制限）
 )
+
+var audioContext *audio.Context
 
 type Game struct {
 	player               *Player
@@ -39,6 +47,12 @@ type Game struct {
 	gameTime             int     // ゲーム開始からの経過時間（フレーム数）
 	scrollSpeed          float64 // 現在のスクロール速度
 	baseSpeed            float64 // 基本スクロール速度
+	audioContext         *audio.Context
+	jumpSound            *audio.Player
+	hitSound             *audio.Player
+	destroySound         *audio.Player
+	powerdownSound       *audio.Player
+	gameOverSound        *audio.Player
 }
 
 type Player struct {
@@ -56,7 +70,90 @@ type Laser struct {
 	x, y float64
 }
 
+// 音声ファイルを読み込む関数
+func loadSound(filename string) (*audio.Player, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	// ファイルの内容をメモリに読み込む
+	audioBytes, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+
+	// バイトデータからデコード
+	decoded, err := wav.DecodeWithSampleRate(audioContext.SampleRate(), bytes.NewReader(audioBytes))
+	if err != nil {
+		return nil, err
+	}
+
+	player, err := audioContext.NewPlayer(decoded)
+	if err != nil {
+		return nil, err
+	}
+
+	return player, nil
+}
+
+// 簡単な音声データを生成する関数（音声ファイルが見つからない場合の代替）
+func createSimpleSound(frequency float64, duration float64) *audio.Player {
+	sampleRate := 44100
+	numSamples := int(float64(sampleRate) * duration)
+
+	// 簡単な正弦波を生成
+	data := make([]byte, numSamples*2) // 16ビット = 2バイト
+	for i := 0; i < numSamples; i++ {
+		value := math.Sin(2 * math.Pi * frequency * float64(i) / float64(sampleRate))
+		sample := int16(value * 0.3 * 32767) // 音量30%
+		data[i*2] = byte(sample & 0xFF)
+		data[i*2+1] = byte((sample >> 8) & 0xFF)
+	}
+
+	// 音声プレイヤーを作成
+	player := audioContext.NewPlayerFromBytes(data)
+	return player
+}
+
 func NewGame() *Game {
+	// 音声ファイルを読み込み
+	jumpSound, err := loadSound("se_shot_002.wav")
+	if err != nil {
+		log.Printf("ジャンプ音の読み込みエラー: %v", err)
+		// 代替音声を生成
+		jumpSound = createSimpleSound(800, 0.2)
+	}
+
+	hitSound, err := loadSound("se_hit_004.wav")
+	if err != nil {
+		log.Printf("ヒット音の読み込みエラー: %v", err)
+		// 代替音声を生成
+		hitSound = createSimpleSound(400, 0.1)
+	}
+
+	destroySound, err := loadSound("se_hit_005.wav")
+	if err != nil {
+		log.Printf("破壊音の読み込みエラー: %v", err)
+		// 代替音声を生成
+		destroySound = createSimpleSound(200, 0.3)
+	}
+
+	powerdownSound, err := loadSound("se_powerdown_006.wav")
+	if err != nil {
+		log.Printf("パワーダウン音の読み込みエラー: %v", err)
+		// 代替音声を生成
+		powerdownSound = createSimpleSound(300, 0.4)
+	}
+
+	gameOverSound, err := loadSound("jingle_original_die_003.wav")
+	if err != nil {
+		log.Printf("ゲームオーバー音の読み込みエラー: %v", err)
+		// 代替音声を生成
+		gameOverSound = createSimpleSound(150, 1.0)
+	}
+
 	return &Game{
 		player: &Player{
 			x:        50,
@@ -78,6 +175,12 @@ func NewGame() *Game {
 		gameTime:             0,   // ゲーム開始からの経過時間
 		scrollSpeed:          1.5, // 初期スクロール速度
 		baseSpeed:            1.5, // 基本スクロール速度
+		audioContext:         audioContext,
+		jumpSound:            jumpSound,
+		hitSound:             hitSound,
+		destroySound:         destroySound,
+		powerdownSound:       powerdownSound,
+		gameOverSound:        gameOverSound,
 	}
 }
 
@@ -109,6 +212,12 @@ func (g *Game) Update() error {
 	if g.touchPressed || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		g.player.velocity = -8 // ふんわりとしたジャンプ
 		fmt.Printf("ジャンプ実行: velocity=%.1f\n", g.player.velocity)
+
+		// ジャンプ音を再生
+		if g.jumpSound != nil {
+			g.jumpSound.Rewind()
+			g.jumpSound.Play()
+		}
 	}
 
 	// 重力の適用（ふんわりとした落下）
@@ -122,14 +231,31 @@ func (g *Game) Update() error {
 
 		// 画面外に到達した場合、ライフを1減らす
 		g.lives--
+
+		// パワーダウン音を再生
+		if g.powerdownSound != nil {
+			g.powerdownSound.Rewind()
+			g.powerdownSound.Play()
+		}
+
 		if g.lives <= 0 {
 			g.gameOver = true
+			// ゲームオーバー音を再生
+			if g.gameOverSound != nil {
+				g.gameOverSound.Rewind()
+				g.gameOverSound.Play()
+			}
 		}
 	}
 
 	// 画面下に落下したらゲームオーバー
 	if g.player.y > screenHeight {
 		g.gameOver = true
+		// ゲームオーバー音を再生
+		if g.gameOverSound != nil {
+			g.gameOverSound.Rewind()
+			g.gameOverSound.Play()
+		}
 		return nil
 	}
 
@@ -211,8 +337,20 @@ func (g *Game) Update() error {
 				if obstacle.hitCount >= 2 { // 2回ヒットしたら削除
 					g.obstacles = append(g.obstacles[:j], g.obstacles[j+1:]...)
 					g.score += 3 // 障害物破壊で3点追加
+
+					// 破壊音を再生
+					if g.destroySound != nil {
+						g.destroySound.Rewind()
+						g.destroySound.Play()
+					}
 				} else {
 					g.score++ // 通常のヒットで1点追加
+
+					// ヒット音を再生
+					if g.hitSound != nil {
+						g.hitSound.Rewind()
+						g.hitSound.Play()
+					}
 				}
 				g.lasers = append(g.lasers[:i], g.lasers[i+1:]...)
 				break // 衝突したら次のレーザーに進む
@@ -235,8 +373,20 @@ func (g *Game) Update() error {
 		// プレイヤーとの衝突判定
 		if g.checkCollision(g.player, obstacle) {
 			g.lives--
+
+			// パワーダウン音を再生
+			if g.powerdownSound != nil {
+				g.powerdownSound.Rewind()
+				g.powerdownSound.Play()
+			}
+
 			if g.lives <= 0 {
 				g.gameOver = true
+				// ゲームオーバー音を再生
+				if g.gameOverSound != nil {
+					g.gameOverSound.Rewind()
+					g.gameOverSound.Play()
+				}
 			}
 			// 衝突した障害物を削除
 			g.obstacles = append(g.obstacles[:i], g.obstacles[i+1:]...)
@@ -366,7 +516,29 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return screenWidth, screenHeight
 }
 
+// 音声プレイヤーをクリーンアップする関数
+func (g *Game) Close() {
+	if g.jumpSound != nil {
+		g.jumpSound.Close()
+	}
+	if g.hitSound != nil {
+		g.hitSound.Close()
+	}
+	if g.destroySound != nil {
+		g.destroySound.Close()
+	}
+	if g.powerdownSound != nil {
+		g.powerdownSound.Close()
+	}
+	if g.gameOverSound != nil {
+		g.gameOverSound.Close()
+	}
+}
+
 func main() {
+	// 音声コンテキストを初期化（一度だけ）
+	audioContext = audio.NewContext(44100)
+
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("EbitenSP - 空中アクション")
 
