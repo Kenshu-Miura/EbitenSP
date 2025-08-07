@@ -57,9 +57,11 @@ go run .
 
 ゲームには以下の効果音が含まれています：
 
-- `jump.wav`: ジャンプ時の効果音（高音、短い）
-- `hit.wav`: レーザーが障害物に当たった時の効果音（中音、短い）
-- `destroy.wav`: 障害物が壊れた時の効果音（低音、長め）
+- `se_shot_002.wav`: ジャンプ時の効果音
+- `se_hit_004.wav`: レーザーが障害物に当たった時の効果音
+- `se_hit_005.wav`: 障害物が壊れた時の効果音
+- `se_powerdown_006.wav`: ライフが減少した時の効果音
+- `jingle_original_die_003.wav`: ゲームオーバー時の効果音
 
 音声ファイルが見つからない場合は、プログラムが自動的に代替音声を生成します。
 
@@ -67,12 +69,14 @@ go run .
 
 - `main.go`: メインゲームロジック
 - `go.mod`: Goモジュール設定
+- `go.sum`: Go依存関係のチェックサム
 - `AndroidManifest.xml`: Androidアプリ設定
 - `build.gradle`: Androidビルド設定
-- `generate_sounds.py`: 音声ファイル生成スクリプト
-- `jump.wav`: ジャンプ効果音
-- `hit.wav`: ヒット効果音
-- `destroy.wav`: 破壊効果音
+- `se_shot_002.wav`: ジャンプ効果音
+- `se_hit_004.wav`: レーザーヒット効果音
+- `se_hit_005.wav`: 障害物破壊効果音
+- `se_powerdown_006.wav`: ライフ減少効果音
+- `jingle_original_die_003.wav`: ゲームオーバー効果音
 
 ## ライセンス
 
