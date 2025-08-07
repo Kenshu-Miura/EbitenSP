@@ -28,8 +28,11 @@ type Game struct {
 	obstacleTimer int
 	touchPressed  bool
 	gravity       float64
-	lives         int // ライフ数
-	maxLives      int // 最大ライフ数
+	lives         int     // ライフ数
+	maxLives      int     // 最大ライフ数
+	gameTime      int     // ゲーム開始からの経過時間（フレーム数）
+	scrollSpeed   float64 // 現在のスクロール速度
+	baseSpeed     float64 // 基本スクロール速度
 }
 
 type Player struct {
@@ -59,6 +62,9 @@ func NewGame() *Game {
 		gravity:       0.3, // ふんわりとした重力
 		lives:         4,   // 初期ライフ数（4回まで当たれる）
 		maxLives:      4,   // 最大ライフ数
+		gameTime:      0,   // ゲーム開始からの経過時間
+		scrollSpeed:   1.5, // 初期スクロール速度
+		baseSpeed:     1.5, // 基本スクロール速度
 	}
 }
 
@@ -95,7 +101,13 @@ func (g *Game) Update() error {
 	}
 
 	// スクロール処理（プレイヤーが右に進む）
-	g.scrollX += 1.5
+	g.scrollX += g.scrollSpeed
+
+	// 時間経過に応じてスクロール速度を調整
+	g.gameTime++
+	// より滑らかな速度上昇のため、フレームごとに少しずつ調整
+	timeFactor := float64(g.gameTime) / 3600.0       // 60秒で最大速度に達するように調整
+	g.scrollSpeed = g.baseSpeed + (timeFactor * 2.0) // 最大で3.5倍の速度まで上昇
 
 	// 障害物の生成
 	g.obstacleTimer++
@@ -117,7 +129,7 @@ func (g *Game) Update() error {
 	// 障害物の移動と衝突判定
 	for i := len(g.obstacles) - 1; i >= 0; i-- {
 		obstacle := g.obstacles[i]
-		obstacle.x -= 1.5
+		obstacle.x -= g.scrollSpeed // スクロール速度に合わせて移動
 
 		// 画面外に出た障害物を削除
 		if obstacle.x < -obstacle.width {
@@ -186,6 +198,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// スコアを表示
 	scoreText := "Score: " + fmt.Sprintf("%d", g.score)
 	ebitenutil.DebugPrint(screen, scoreText)
+
+	// 現在のスクロール速度を表示
+	speedText := "Speed: " + fmt.Sprintf("%.1f", g.scrollSpeed)
+	ebitenutil.DebugPrintAt(screen, speedText, 0, 20)
 
 	// ライフを表示（右上に赤いハートマーク）
 	g.drawLives(screen)
