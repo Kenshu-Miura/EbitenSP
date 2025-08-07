@@ -149,18 +149,34 @@ func (g *Game) Update() error {
 		obstacleCount := rand.Intn(2) + 1 // 1〜2個
 
 		for i := 0; i < obstacleCount; i++ {
-			// ランダムな位置と大きさの障害物を生成
-			obstacleWidth := float64(rand.Intn(40) + 20)        // 20-60のランダムな幅
-			obstacleHeight := float64(rand.Intn(60) + 30)       // 30-90のランダムな高さ
-			obstacleY := float64(rand.Intn(screenHeight - 100)) // 0からscreenHeight-100のランダムなY位置
+			// 重複しない位置を見つけるまで試行
+			var obstacle *Obstacle
+			maxAttempts := 50 // 最大試行回数
 
-			g.obstacles = append(g.obstacles, &Obstacle{
-				x:        screenWidth + 50,
-				y:        obstacleY,
-				width:    obstacleWidth,
-				height:   obstacleHeight,
-				hitCount: 0, // 障害物生成時はヒットカウントを0に
-			})
+			for attempt := 0; attempt < maxAttempts; attempt++ {
+				// ランダムな位置と大きさの障害物を生成
+				obstacleWidth := float64(rand.Intn(40) + 20)        // 20-60のランダムな幅
+				obstacleHeight := float64(rand.Intn(60) + 30)       // 30-90のランダムな高さ
+				obstacleY := float64(rand.Intn(screenHeight - 100)) // 0からscreenHeight-100のランダムなY位置
+
+				obstacle = &Obstacle{
+					x:        screenWidth + 50,
+					y:        obstacleY,
+					width:    obstacleWidth,
+					height:   obstacleHeight,
+					hitCount: 0, // 障害物生成時はヒットカウントを0に
+				}
+
+				// 既存の障害物との重複チェック
+				if !g.isObstacleOverlapping(obstacle) {
+					break // 重複しなければループを抜ける
+				}
+			}
+
+			// 障害物を追加（重複チェックを通過したもの、または最大試行回数に達したもの）
+			if obstacle != nil {
+				g.obstacles = append(g.obstacles, obstacle)
+			}
 		}
 		g.obstacleTimer = 0
 		// 次の障害物までの間隔をランダムに設定（30-120フレーム、つまり0.5-2秒）
@@ -242,6 +258,37 @@ func (g *Game) checkLaserCollision(laser *Laser, obstacle *Obstacle) bool {
 		laser.x+laserHeight > obstacle.x &&
 		laser.y < obstacle.y+obstacle.height &&
 		laser.y+laserWidth > obstacle.y
+}
+
+// 障害物の重複チェック関数
+func (g *Game) isObstacleOverlapping(newObstacle *Obstacle) bool {
+	minSpacing := 10.0 // 障害物間の最小間隔
+
+	for _, existingObstacle := range g.obstacles {
+		// 四角形同士の重複チェック（境界ボックス）
+		// 新しい障害物の境界
+		newLeft := newObstacle.x
+		newRight := newObstacle.x + newObstacle.width
+		newTop := newObstacle.y
+		newBottom := newObstacle.y + newObstacle.height
+
+		// 既存の障害物の境界
+		existingLeft := existingObstacle.x
+		existingRight := existingObstacle.x + existingObstacle.width
+		existingTop := existingObstacle.y
+		existingBottom := existingObstacle.y + existingObstacle.height
+
+		// 最小間隔を考慮した重複チェック
+		// 四角形が重なっているか、または最小間隔以内にあるかをチェック
+		if newRight+minSpacing > existingLeft &&
+			newLeft < existingRight+minSpacing &&
+			newBottom+minSpacing > existingTop &&
+			newTop < existingBottom+minSpacing {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (g *Game) drawLives(screen *ebiten.Image) {
