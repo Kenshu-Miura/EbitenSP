@@ -28,6 +28,8 @@ type Game struct {
 	obstacleTimer int
 	touchPressed  bool
 	gravity       float64
+	lives         int // ライフ数
+	maxLives      int // 最大ライフ数
 }
 
 type Player struct {
@@ -55,6 +57,8 @@ func NewGame() *Game {
 		obstacleTimer: 0,
 		touchPressed:  false,
 		gravity:       0.3, // ふんわりとした重力
+		lives:         4,   // 初期ライフ数（4回まで当たれる）
+		maxLives:      4,   // 最大ライフ数
 	}
 }
 
@@ -124,7 +128,12 @@ func (g *Game) Update() error {
 
 		// プレイヤーとの衝突判定
 		if g.checkCollision(g.player, obstacle) {
-			g.gameOver = true
+			g.lives--
+			if g.lives <= 0 {
+				g.gameOver = true
+			}
+			// 衝突した障害物を削除
+			g.obstacles = append(g.obstacles[:i], g.obstacles[i+1:]...)
 		}
 	}
 
@@ -136,6 +145,30 @@ func (g *Game) checkCollision(player *Player, obstacle *Obstacle) bool {
 		player.x+playerSize > obstacle.x &&
 		player.y < obstacle.y+obstacle.height &&
 		player.y+playerSize > obstacle.y
+}
+
+func (g *Game) drawLives(screen *ebiten.Image) {
+	// 右上にライフを表示
+	heartSize := 20.0
+	heartSpacing := 25.0
+	startX := screenWidth - 30 - (heartSpacing * float64(g.maxLives))
+	startY := 10.0
+
+	for i := 0; i < g.maxLives; i++ {
+		x := startX + float64(i)*heartSpacing
+		y := startY
+
+		// ハートの色を決定（残りライフなら赤、失ったライフならグレー）
+		var heartColor color.RGBA
+		if i < g.lives {
+			heartColor = color.RGBA{255, 0, 0, 255} // 赤色
+		} else {
+			heartColor = color.RGBA{128, 128, 128, 255} // グレー
+		}
+
+		// 簡単なハートマークを描画（四角形で代用）
+		vector.DrawFilledRect(screen, float32(x), float32(y), float32(heartSize), float32(heartSize), heartColor, false)
+	}
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -153,6 +186,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// スコアを表示
 	scoreText := "Score: " + fmt.Sprintf("%d", g.score)
 	ebitenutil.DebugPrint(screen, scoreText)
+
+	// ライフを表示（右上に赤いハートマーク）
+	g.drawLives(screen)
 
 	if g.gameOver {
 		ebitenutil.DebugPrintAt(screen, "GAME OVER", screenWidth/2-50, screenHeight/2-20)
