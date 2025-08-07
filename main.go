@@ -20,19 +20,20 @@ const (
 )
 
 type Game struct {
-	player        *Player
-	obstacles     []*Obstacle
-	score         int
-	gameOver      bool
-	scrollX       float64
-	obstacleTimer int
-	touchPressed  bool
-	gravity       float64
-	lives         int     // ライフ数
-	maxLives      int     // 最大ライフ数
-	gameTime      int     // ゲーム開始からの経過時間（フレーム数）
-	scrollSpeed   float64 // 現在のスクロール速度
-	baseSpeed     float64 // 基本スクロール速度
+	player               *Player
+	obstacles            []*Obstacle
+	score                int
+	gameOver             bool
+	scrollX              float64
+	obstacleTimer        int
+	nextObstacleInterval int // 次の障害物までの間隔
+	touchPressed         bool
+	gravity              float64
+	lives                int     // ライフ数
+	maxLives             int     // 最大ライフ数
+	gameTime             int     // ゲーム開始からの経過時間（フレーム数）
+	scrollSpeed          float64 // 現在のスクロール速度
+	baseSpeed            float64 // 基本スクロール速度
 }
 
 type Player struct {
@@ -53,18 +54,19 @@ func NewGame() *Game {
 			velocity: 0,
 			onGround: false,
 		},
-		obstacles:     make([]*Obstacle, 0),
-		score:         0,
-		gameOver:      false,
-		scrollX:       0,
-		obstacleTimer: 0,
-		touchPressed:  false,
-		gravity:       0.3, // ふんわりとした重力
-		lives:         4,   // 初期ライフ数（4回まで当たれる）
-		maxLives:      4,   // 最大ライフ数
-		gameTime:      0,   // ゲーム開始からの経過時間
-		scrollSpeed:   1.5, // 初期スクロール速度
-		baseSpeed:     1.5, // 基本スクロール速度
+		obstacles:            make([]*Obstacle, 0),
+		score:                0,
+		gameOver:             false,
+		scrollX:              0,
+		obstacleTimer:        0,
+		nextObstacleInterval: rand.Intn(91) + 30, // 初期間隔をランダムに設定（30-120フレーム、つまり0.5-2秒）
+		touchPressed:         false,
+		gravity:              0.3, // ふんわりとした重力
+		lives:                4,   // 初期ライフ数（4回まで当たれる）
+		maxLives:             4,   // 最大ライフ数
+		gameTime:             0,   // ゲーム開始からの経過時間
+		scrollSpeed:          1.5, // 初期スクロール速度
+		baseSpeed:            1.5, // 基本スクロール速度
 	}
 }
 
@@ -111,19 +113,26 @@ func (g *Game) Update() error {
 
 	// 障害物の生成
 	g.obstacleTimer++
-	if g.obstacleTimer >= 90 { // 1.5秒ごとに障害物を生成
-		// ランダムな位置と大きさの障害物を生成
-		obstacleWidth := float64(rand.Intn(40) + 20)        // 20-60のランダムな幅
-		obstacleHeight := float64(rand.Intn(60) + 30)       // 30-90のランダムな高さ
-		obstacleY := float64(rand.Intn(screenHeight - 100)) // 0からscreenHeight-100のランダムなY位置
+	if g.obstacleTimer >= g.nextObstacleInterval { // ランダムな間隔で障害物を生成
+		// 一度に1〜2個の障害物をランダムに生成
+		obstacleCount := rand.Intn(2) + 1 // 1〜2個
 
-		g.obstacles = append(g.obstacles, &Obstacle{
-			x:      screenWidth + 50,
-			y:      obstacleY,
-			width:  obstacleWidth,
-			height: obstacleHeight,
-		})
+		for i := 0; i < obstacleCount; i++ {
+			// ランダムな位置と大きさの障害物を生成
+			obstacleWidth := float64(rand.Intn(40) + 20)        // 20-60のランダムな幅
+			obstacleHeight := float64(rand.Intn(60) + 30)       // 30-90のランダムな高さ
+			obstacleY := float64(rand.Intn(screenHeight - 100)) // 0からscreenHeight-100のランダムなY位置
+
+			g.obstacles = append(g.obstacles, &Obstacle{
+				x:      screenWidth + 50,
+				y:      obstacleY,
+				width:  obstacleWidth,
+				height: obstacleHeight,
+			})
+		}
 		g.obstacleTimer = 0
+		// 次の障害物までの間隔をランダムに設定（30-120フレーム、つまり0.5-2秒）
+		g.nextObstacleInterval = rand.Intn(91) + 30
 	}
 
 	// 障害物の移動と衝突判定
