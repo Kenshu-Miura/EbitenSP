@@ -8,6 +8,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const (
@@ -25,6 +26,7 @@ type Game struct {
 	gameOver      bool
 	scrollX       float64
 	obstacleTimer int
+	touchPressed  bool
 }
 
 type Player struct {
@@ -50,21 +52,50 @@ func NewGame() *Game {
 		gameOver:      false,
 		scrollX:       0,
 		obstacleTimer: 0,
+		touchPressed:  false,
 	}
 }
 
 func (g *Game) Update() error {
+	// タッチ状態の更新
+	var touchIDs []ebiten.TouchID
+	touchIDs = inpututil.AppendJustPressedTouchIDs(touchIDs)
+	if len(touchIDs) > 0 {
+		g.touchPressed = true
+	}
+
 	if g.gameOver {
+		// デバッグ情報を出力
+		if g.touchPressed {
+			println("Touch detected in game over state!")
+		}
 		if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+			println("Space key pressed in game over state!")
+		}
+
+		// 直接タッチ検出も試す
+		var directTouchIDs []ebiten.TouchID
+		directTouchIDs = inpututil.AppendJustPressedTouchIDs(directTouchIDs)
+		if len(directTouchIDs) > 0 {
+			println("Direct touch detected in game over state!")
+		}
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			println("Mouse click detected in game over state!")
+		}
+
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) || g.touchPressed || len(directTouchIDs) > 0 || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			println("Restarting game...")
 			*g = *NewGame()
+			return nil
 		}
 		return nil
 	}
 
 	// プレイヤーのジャンプ処理（マウスクリックまたはタッチ）
-	if (inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) || len(inpututil.JustPressedTouchIDs()) > 0) && g.player.onGround {
+	if (inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) || g.touchPressed) && g.player.onGround {
 		g.player.velocity = -15
 		g.player.onGround = false
+		g.touchPressed = false // ジャンプ後にタッチ状態をリセット
 	}
 
 	// 重力の適用
@@ -124,14 +155,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{135, 206, 235, 255}) // 空色
 
 	// 地面を描画
-	ebitenutil.DrawRect(screen, 0, groundY, screenWidth, screenHeight-groundY, color.RGBA{34, 139, 34, 255})
+	vector.DrawFilledRect(screen, 0, groundY, screenWidth, screenHeight-groundY, color.RGBA{34, 139, 34, 255}, false)
 
 	// プレイヤーを描画
-	ebitenutil.DrawRect(screen, g.player.x, g.player.y, playerSize, playerSize, color.RGBA{255, 0, 0, 255})
+	vector.DrawFilledRect(screen, float32(g.player.x), float32(g.player.y), float32(playerSize), float32(playerSize), color.RGBA{255, 0, 0, 255}, false)
 
 	// 障害物を描画
 	for _, obstacle := range g.obstacles {
-		ebitenutil.DrawRect(screen, obstacle.x, obstacle.y, obstacleSize, obstacleSize, color.RGBA{139, 69, 19, 255})
+		vector.DrawFilledRect(screen, float32(obstacle.x), float32(obstacle.y), float32(obstacleSize), float32(obstacleSize), color.RGBA{139, 69, 19, 255}, false)
 	}
 
 	// スコアを表示
@@ -140,7 +171,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	if g.gameOver {
 		ebitenutil.DebugPrintAt(screen, "GAME OVER", screenWidth/2-50, screenHeight/2-20)
-		ebitenutil.DebugPrintAt(screen, "Press SPACE to restart", screenWidth/2-80, screenHeight/2+20)
+		ebitenutil.DebugPrintAt(screen, "Tap to restart", screenWidth/2-50, screenHeight/2+20)
 	}
 }
 
